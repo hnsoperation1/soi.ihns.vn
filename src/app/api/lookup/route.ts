@@ -3,6 +3,10 @@ import { lookupBooking } from "@/lib/lookup";
 import { formatBooking, type FormatStyle } from "@/lib/format";
 
 export const maxDuration = 90; // team plan is Pro, allows up to 300s — 90s leaves headroom over the 40s internal wait
+// Verified 2026-09-08: without this, Vercel ran the function in iad1 (US East) while Vietjet's
+// site is served near Vietnam — every Playwright network round-trip crossed the Pacific twice,
+// making page load alone take ~12-16s. Pin the function near Vietnam to cut that latency.
+export const preferredRegion = ["sin1", "hkg1"];
 
 const STYLES: FormatStyle[] = ["en", "vi-short", "en-long"];
 
