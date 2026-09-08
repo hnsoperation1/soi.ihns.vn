@@ -3,3 +3,5 @@ node_modules/
 *.png
 .next/
 next-env.d.ts
+agent-dist/
+agent-exe/

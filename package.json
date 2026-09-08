@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "lookup": "tsx scripts/cli.ts"
+    "lookup": "tsx scripts/cli.ts",
+    "agent": "tsx agent/server.ts",
+    "agent:build": "powershell -ExecutionPolicy Bypass -File agent/build-dist.ps1"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

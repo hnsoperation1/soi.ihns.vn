@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type FormatKey = "en" | "vi-short" | "en-long";
 
@@ -12,6 +12,20 @@ const STYLE_LABELS: Record<FormatKey, string> = {
 
 const STYLE_ORDER: FormatKey[] = ["en", "vi-short", "en-long"];
 
+const AGENT_URL = "http://127.0.0.1:17345";
+
+async function pingAgent(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 800);
+    const res = await fetch(`${AGENT_URL}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function Home() {
   const [code, setCode] = useState("");
   const [lastName, setLastName] = useState("");
@@ -20,6 +34,12 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [formats, setFormats] = useState<Record<FormatKey, string> | null>(null);
   const [copiedKey, setCopiedKey] = useState<FormatKey | null>(null);
+  // null = chưa dò xong, true/false = đã biết có Trợ lý cục bộ hay không
+  const [agentAvailable, setAgentAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    pingAgent().then(setAgentAvailable);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,8 +47,13 @@ export default function Home() {
     setError(null);
     setFormats(null);
 
+    // Re-check right before submitting too — the agent may have been started/stopped since
+    // the page loaded (e.g. employee just launched it after seeing the "not detected" notice).
+    const useAgent = agentAvailable ?? (await pingAgent());
+    if (useAgent !== agentAvailable) setAgentAvailable(useAgent);
+
     try {
-      const res = await fetch("/api/lookup", {
+      const res = await fetch(useAgent ? `${AGENT_URL}/lookup` : "/api/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, lastName, firstName }),
@@ -62,6 +87,16 @@ export default function Home() {
       <p className="mt-1 text-sm text-gray-500">
         Nhập thông tin giống form &quot;Chuyến bay của tôi&quot; trên vietjetair.com.
       </p>
+      {agentAvailable === true && (
+        <p className="mt-2 inline-block rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+          ● Đang dùng Trợ lý cục bộ (nhanh)
+        </p>
+      )}
+      {agentAvailable === false && (
+        <p className="mt-2 inline-block rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+          ● Đang dùng máy chủ đám mây (có thể chậm hơn)
+        </p>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-3 rounded-lg border border-gray-200 bg-white p-4">
         <div>
