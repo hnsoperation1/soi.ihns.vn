@@ -48,7 +48,7 @@ async function launchBrowser(): Promise<Browser> {
 // burn ~30s doing nothing every single call. Since the actual form interactions below use
 // `force: true` (which bypasses overlay-blocking checks), this only needs to clear the *known*
 // dismissible popups within a short budget — it is not load-bearing for correctness.
-async function dismissPopups(page: import('playwright-core').Page, budgetMs = 4000): Promise<void> {
+async function dismissPopups(page: import('playwright-core').Page, budgetMs = 10000): Promise<void> {
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
     let dismissedAny = false;
