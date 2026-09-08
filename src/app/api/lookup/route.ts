@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { lookupBooking } from "@/lib/lookup";
 import { formatBooking, type FormatStyle } from "@/lib/format";
 
-export const maxDuration = 60;
+export const maxDuration = 90; // team plan is Pro, allows up to 300s — 90s leaves headroom over the 40s internal wait
 
 const STYLES: FormatStyle[] = ["en", "vi-short", "en-long"];
 

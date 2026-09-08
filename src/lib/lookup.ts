@@ -47,7 +47,12 @@ export async function lookupBooking(
   lastName: string,
   firstName: string
 ): Promise<LookupResult> {
+  const t0 = Date.now();
+  const mark = (label: string) => console.log(`[lookup] +${Date.now() - t0}ms ${label}`);
+
+  mark('launching browser');
   const browser = await launchBrowser();
+  mark('browser launched');
 
   try {
     const context = await browser.newContext({
@@ -62,6 +67,7 @@ export async function lookupBooking(
       page.on('response', async (res) => {
         const req = res.request();
         if (res.url().includes('/booking/api/v1/reservations') && req.method() === 'PATCH') {
+          mark(`got /reservations response, status=${res.status()}`);
           try {
             resolve(await res.json());
           } catch (e) {
@@ -73,8 +79,9 @@ export async function lookupBooking(
 
     await page.goto('https://www.vietjetair.com/vi/my/search-booking', {
       waitUntil: 'domcontentloaded',
-      timeout: 60000,
+      timeout: 45000,
     });
+    mark('page navigated (domcontentloaded)');
     await page.waitForTimeout(3000);
 
     // Dismiss the promo dialog + cookie banner; they can appear staggered.
@@ -97,17 +104,25 @@ export async function lookupBooking(
       if (dialogCount === 0 && !cookieVisible) break;
       if (!dismissedAny) await page.waitForTimeout(500);
     }
+    mark('popups dismissed');
 
-    await page.fill('input[name="reservationLocator"]', code);
-    await page.fill('input[name="passengerFamilyName"]', lastName);
-    await page.fill('input[name="passengerMiddleGivenName"]', firstName);
+    await page.fill('input[name="reservationLocator"]', code, { timeout: 45000 });
+    await page.fill('input[name="passengerFamilyName"]', lastName, { timeout: 45000 });
+    await page.fill('input[name="passengerMiddleGivenName"]', firstName, { timeout: 45000 });
+    mark('form filled');
     await page.click('button[type="submit"]:has-text("Tìm kiếm")');
+    mark('submit clicked, waiting for response');
 
     const timeoutPromise = new Promise<LookupResult>((_, reject) =>
-      setTimeout(() => reject(new Error('Timed out waiting for Vietjet response (20s)')), 20000)
+      setTimeout(() => reject(new Error('Timed out waiting for Vietjet response (40s)')), 40000)
     );
 
-    return await Promise.race([resultPromise, timeoutPromise]);
+    const result = await Promise.race([resultPromise, timeoutPromise]);
+    mark('done');
+    return result;
+  } catch (err) {
+    mark(`error: ${err instanceof Error ? err.message : String(err)}`);
+    throw err;
   } finally {
     await browser.close();
   }
