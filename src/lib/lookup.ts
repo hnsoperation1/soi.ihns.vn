@@ -131,7 +131,19 @@ export async function lookupBooking(
       }
     }
 
-    await page.click('button[type="submit"]:has-text("Tìm kiếm")', { force: true, timeout: 10000 });
+    // A real mouse click (even with force:true) is still dispatched at the button's on-screen
+    // coordinates and can land on whatever visually covers it (e.g. the cookie banner) instead
+    // of the button itself. Calling .click() on the DOM element directly sidesteps hit-testing
+    // entirely, so it always fires the button's handler regardless of any overlay on top of it.
+    const clicked = await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button[type="submit"]')).find((b) =>
+        b.textContent?.includes('Tìm kiếm')
+      ) as HTMLButtonElement | undefined;
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    if (!clicked) throw new Error('Submit button not found in page');
     mark('submit clicked, waiting for response');
 
     const timeoutPromise = new Promise<LookupResult>((_, reject) =>
