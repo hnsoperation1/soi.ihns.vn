@@ -42,29 +42,28 @@ async function launchBrowser(): Promise<Browser> {
   });
 }
 
-async function dismissPopups(page: import('playwright-core').Page): Promise<void> {
-  // The promo dialog + cookie banner (and occasionally a chat-widget bubble) can appear
-  // staggered and/or re-appear after being dismissed once — this loop is called both right
-  // after navigation and again right before clicking submit, since on slow (serverless)
-  // connections a dialog can pop up during the multi-second form-fill gap in between.
-  for (let i = 0; i < 8; i++) {
+// Best-effort cleanup only — capped to a fixed wall-clock budget rather than a retry count.
+// A previous version retried up to 8 times with a 1500ms click-timeout each, which meant an
+// unrecognized/unclosable dialog (anything other than the promo popup or cookie banner) could
+// burn ~30s doing nothing every single call. Since the actual form interactions below use
+// `force: true` (which bypasses overlay-blocking checks), this only needs to clear the *known*
+// dismissible popups within a short budget — it is not load-bearing for correctness.
+async function dismissPopups(page: import('playwright-core').Page, budgetMs = 4000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {
     let dismissedAny = false;
     for (const sel of ['button:has-text("Để sau")', 'button:has-text("Từ chối tất cả")']) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible().catch(() => false)) {
-        await btn.click({ timeout: 1500 }).catch(() => {});
+        await btn.click({ timeout: 400 }).catch(() => {});
         dismissedAny = true;
-        await page.waitForTimeout(500);
       }
     }
-    const dialogCount = await page.locator('.MuiDialog-root').count();
-    const cookieVisible = await page
-      .locator('button:has-text("Từ chối tất cả")')
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (dialogCount === 0 && !cookieVisible) break;
-    if (!dismissedAny) await page.waitForTimeout(500);
+    if (!dismissedAny) {
+      const dialogCount = await page.locator('.MuiDialog-root').count();
+      if (dialogCount === 0) break;
+    }
+    await page.waitForTimeout(300);
   }
 }
 
@@ -113,24 +112,26 @@ export async function lookupBooking(
     await dismissPopups(page);
     mark('popups dismissed');
 
-    await page.fill('input[name="reservationLocator"]', code, { timeout: 45000 });
-    await page.fill('input[name="passengerFamilyName"]', lastName, { timeout: 45000 });
-    await page.fill('input[name="passengerMiddleGivenName"]', firstName, { timeout: 45000 });
+    await page.fill('input[name="reservationLocator"]', code, { timeout: 45000, force: true });
+    await page.fill('input[name="passengerFamilyName"]', lastName, { timeout: 45000, force: true });
+    await page.fill('input[name="passengerMiddleGivenName"]', firstName, { timeout: 45000, force: true });
     mark('form filled');
 
-    // A dialog can reappear during the gap while filling the form (seen on slow/serverless
-    // connections), which would block the submit click — dismiss again just in case.
-    await dismissPopups(page);
-    const blockingDialogText = await page
-      .locator('.MuiDialog-root')
-      .first()
-      .textContent()
-      .catch(() => null);
-    if (blockingDialogText) {
-      mark(`dialog still present before submit: ${blockingDialogText.slice(0, 200)}`);
+    // count() resolves immediately even with zero matches; textContent() on a locator that
+    // matches nothing would otherwise block for the default 30s action timeout waiting for an
+    // element that will never appear.
+    if ((await page.locator('.MuiDialog-root').count()) > 0) {
+      const blockingDialogText = await page
+        .locator('.MuiDialog-root')
+        .first()
+        .textContent({ timeout: 1000 })
+        .catch(() => null);
+      if (blockingDialogText) {
+        mark(`dialog still present before submit: ${blockingDialogText.slice(0, 200)}`);
+      }
     }
 
-    await page.click('button[type="submit"]:has-text("Tìm kiếm")', { force: true });
+    await page.click('button[type="submit"]:has-text("Tìm kiếm")', { force: true, timeout: 10000 });
     mark('submit clicked, waiting for response');
 
     const timeoutPromise = new Promise<LookupResult>((_, reject) =>
