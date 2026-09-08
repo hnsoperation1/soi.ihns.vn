@@ -42,6 +42,32 @@ async function launchBrowser(): Promise<Browser> {
   });
 }
 
+async function dismissPopups(page: import('playwright-core').Page): Promise<void> {
+  // The promo dialog + cookie banner (and occasionally a chat-widget bubble) can appear
+  // staggered and/or re-appear after being dismissed once — this loop is called both right
+  // after navigation and again right before clicking submit, since on slow (serverless)
+  // connections a dialog can pop up during the multi-second form-fill gap in between.
+  for (let i = 0; i < 8; i++) {
+    let dismissedAny = false;
+    for (const sel of ['button:has-text("Để sau")', 'button:has-text("Từ chối tất cả")']) {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click({ timeout: 1500 }).catch(() => {});
+        dismissedAny = true;
+        await page.waitForTimeout(500);
+      }
+    }
+    const dialogCount = await page.locator('.MuiDialog-root').count();
+    const cookieVisible = await page
+      .locator('button:has-text("Từ chối tất cả")')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (dialogCount === 0 && !cookieVisible) break;
+    if (!dismissedAny) await page.waitForTimeout(500);
+  }
+}
+
 export async function lookupBooking(
   code: string,
   lastName: string,
@@ -84,33 +110,27 @@ export async function lookupBooking(
     mark('page navigated (domcontentloaded)');
     await page.waitForTimeout(3000);
 
-    // Dismiss the promo dialog + cookie banner; they can appear staggered.
-    for (let i = 0; i < 8; i++) {
-      let dismissedAny = false;
-      for (const sel of ['button:has-text("Để sau")', 'button:has-text("Từ chối tất cả")']) {
-        const btn = page.locator(sel).first();
-        if (await btn.isVisible().catch(() => false)) {
-          await btn.click({ timeout: 1500 }).catch(() => {});
-          dismissedAny = true;
-          await page.waitForTimeout(500);
-        }
-      }
-      const dialogCount = await page.locator('.MuiDialog-root').count();
-      const cookieVisible = await page
-        .locator('button:has-text("Từ chối tất cả")')
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (dialogCount === 0 && !cookieVisible) break;
-      if (!dismissedAny) await page.waitForTimeout(500);
-    }
+    await dismissPopups(page);
     mark('popups dismissed');
 
     await page.fill('input[name="reservationLocator"]', code, { timeout: 45000 });
     await page.fill('input[name="passengerFamilyName"]', lastName, { timeout: 45000 });
     await page.fill('input[name="passengerMiddleGivenName"]', firstName, { timeout: 45000 });
     mark('form filled');
-    await page.click('button[type="submit"]:has-text("Tìm kiếm")');
+
+    // A dialog can reappear during the gap while filling the form (seen on slow/serverless
+    // connections), which would block the submit click — dismiss again just in case.
+    await dismissPopups(page);
+    const blockingDialogText = await page
+      .locator('.MuiDialog-root')
+      .first()
+      .textContent()
+      .catch(() => null);
+    if (blockingDialogText) {
+      mark(`dialog still present before submit: ${blockingDialogText.slice(0, 200)}`);
+    }
+
+    await page.click('button[type="submit"]:has-text("Tìm kiếm")', { force: true });
     mark('submit clicked, waiting for response');
 
     const timeoutPromise = new Promise<LookupResult>((_, reject) =>
