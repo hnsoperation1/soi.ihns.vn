@@ -15,6 +15,8 @@ const PORT = 17345;
 // open while the agent is running.
 const ALLOWED_ORIGINS = new Set([
   'https://soi.ihns.vn',
+    'https://ihns.vn',
+    'https://www.ihns.vn',
   'http://localhost:3000',
   'http://localhost:3311',
 ]);
